@@ -1,0 +1,9 @@
+#!/bin/bash
+# 5-minute tunnel sample: load line plus queue-full drops and errors in the window.
+# Install: copy bp-sample and this file to /usr/local/bin, then
+#   echo "*/5 * * * * root /usr/local/bin/bp-sample-cron" > /etc/cron.d/bp-sample
+U=$(systemctl list-units --no-legend 'backpack-*' | awk '/Tunnel/{print $1}' | head -1)
+L=$(/usr/local/bin/bp-sample 60 cron)
+D=$(journalctl -u "$U" --no-pager --since "-5min" -o cat | grep -c "queue is full")
+E=$(journalctl -u "$U" --no-pager --since "-5min" -o cat | grep -c "ERROR")
+echo "$L | drops5m=$D errors5m=$E" >> /var/log/bp-samples.log

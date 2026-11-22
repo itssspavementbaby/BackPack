@@ -1,0 +1,16 @@
+#!/bin/bash
+# One-line load sample for a host running a BackPack tunnel.
+# usage: bp-sample [seconds] [tag]
+S=${1:-60}; TAG=${2:-sample}; IF=$(ip -o route get 1.1.1.1 | grep -oP 'dev \K\S+'); P=$(pgrep -f 'backpack -c' | head -1)
+rd(){ read _ u n s i w q si st _ < /proc/stat; echo "$u $n $s $i $w $q $si $st"; }
+pj(){ awk '{print $14+$15}' /proc/$P/stat; }
+A=($(rd)); RX0=$(cat /sys/class/net/$IF/statistics/rx_bytes); TX0=$(cat /sys/class/net/$IF/statistics/tx_bytes); J0=$(pj)
+N0=($(nstat -az TcpRetransSegs TcpOutSegs | awk 'NR>1{print $2}'))
+sleep $S
+B=($(rd)); RX1=$(cat /sys/class/net/$IF/statistics/rx_bytes); TX1=$(cat /sys/class/net/$IF/statistics/tx_bytes); J1=$(pj)
+N1=($(nstat -az TcpRetransSegs TcpOutSegs | awk 'NR>1{print $2}'))
+T=0; for k in 0 1 2 3 4 5 6 7; do d[$k]=$((B[k]-A[k])); T=$((T+d[k])); done
+RSS=$(awk '/VmRSS/{print int($2/1024)}' /proc/$P/status)
+# Established TCP sockets, and those on the tunnel port (8080 = 0x1F90; adjust for your port).
+read EST TUN <<< "$(awk 'NR>1 && $4=="01"{e++; split($2,a,":"); split($3,b,":"); if(a[length(a)]=="1F90"||b[length(b)]=="1F90")t++} END{print e+0,t+0}' /proc/net/tcp /proc/net/tcp6 2>/dev/null)"
+awk -v T=$T -v u=${d[0]} -v s=${d[2]} -v i=${d[3]} -v si=${d[6]} -v rx=$((RX1-RX0)) -v tx=$((TX1-TX0)) -v S=$S -v j=$((J1-J0)) -v rt=$((N1[1]-N0[1])) -v os=$((N1[0]-N0[0])) -v rss=$RSS -v est=$EST -v tun=$TUN -v h=$(hostname) -v now=$(date -u +%F_%T) -v tag=$TAG 'BEGIN{mb=(rx+tx)*8/S/1e6/2; cores=j/100/S; printf "%s %s [%s] busy=%.1f%% usr=%.1f sys=%.1f softirq=%.1f | bp_cores=%.2f rss=%dMB | through=%.0fMbit | conns=%d sess=%d | retrans=%.2f%% | cores_per_Gbit: host=%.2f bp=%.2f\n",now,h,tag,100*(T-i)/T,100*u/T,100*s/T,100*si/T,cores,rss,mb,est,tun,100*rt/(os?os:1),(T-i)/100/S/(mb/1000),cores/(mb/1000)}'
